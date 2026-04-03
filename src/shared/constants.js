@@ -1,9 +1,9 @@
 (function initConstants(globalScope) {
   const MESSAGE_TYPES = {
     GET_APP_STATE: "GET_APP_STATE",
-    CREATE_INVITE: "CREATE_INVITE",
-    ACCEPT_INVITE: "ACCEPT_INVITE",
-    COMPLETE_HANDSHAKE: "COMPLETE_HANDSHAKE",
+    CREATE_ROOM: "CREATE_ROOM",
+    JOIN_ROOM: "JOIN_ROOM",
+    LEAVE_ROOM: "LEAVE_ROOM",
     RESET_SESSION: "RESET_SESSION",
     OPEN_BILIBILI: "OPEN_BILIBILI",
     CONTENT_READY: "CONTENT_READY",
@@ -55,6 +55,10 @@
     STORAGE_KEYS,
     STUN_SERVERS: [{ urls: "stun:stun.l.google.com:19302" }],
     TOAST_DURATION_MS: 2600,
-    VIDEO_STATE_POLL_MS: 1500
+    VIDEO_STATE_POLL_MS: 1500,
+    // PeerJS 免费云信令（数据走 P2P 直连，仅信令过 PeerJS 服务器）
+    // Key 可在 https://peerjs.com 免费注册获取，不填则用 PeerJS 官方 demo 服务器（有限制）
+    PEERJS_KEY: "",
+    PEER_OPTIONS: { debug: 0 }
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);

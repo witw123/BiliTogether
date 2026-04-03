@@ -7,231 +7,117 @@
   --accent-deep: #9d2f18;
   --ok: #1b7c57;
   --warn: #9e6911;
+  --err: #7e2416;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  margin: 0;
-  min-width: 390px;
+  min-width: 360px;
   color: var(--ink);
-  font: 14px/1.45 "Segoe UI", "PingFang SC", sans-serif;
-  background:
-    radial-gradient(circle at top left, rgba(228, 91, 45, 0.22), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(49, 22, 8, 0.14), transparent 28%),
-    linear-gradient(180deg, #f7efe3 0%, #eadcc6 100%);
+  font: 14px/1.5 "Segoe UI", "PingFang SC", sans-serif;
+  background: radial-gradient(circle at top left, rgba(228,91,45,0.2), transparent 38%),
+              radial-gradient(circle at bottom right, rgba(49,22,8,0.12), transparent 28%),
+              linear-gradient(160deg, #f7efe3 0%, #eadcc6 100%);
 }
 
-.popup-shell {
-  padding: 18px;
-}
+.popup-shell { padding: 18px; }
 
-.hero {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
+/* ── Hero ──────────────────────────────────────────── */
+.hero { margin-bottom: 14px; }
+.hero-copy { margin-bottom: 10px; }
 .eyebrow {
-  margin: 0 0 6px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 4px;
 }
-
-.hero h1 {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1;
-}
-
-.subtitle {
-  max-width: 28ch;
-  margin: 8px 0 0;
-  color: var(--muted);
-}
-
+.hero h1 { font-size: 28px; line-height: 1; }
 .hero-status {
-  display: grid;
-  gap: 8px;
-  padding: 14px 0 0;
-  border-top: 1px solid rgba(29, 22, 15, 0.12);
+  display: flex; align-items: center; gap: 10px;
+  padding-top: 12px; border-top: 1px solid var(--line);
 }
-
-.status-copy {
-  margin: 0;
-  color: var(--muted);
-}
-
 .status-pill {
-  display: inline-flex;
-  width: fit-content;
-  align-items: center;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(29, 22, 15, 0.08);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
 }
+.status-pill.ok    { background: rgba(27,124,87,0.14); color: var(--ok); }
+.status-pill.warn  { background: rgba(158,105,17,0.15); color: var(--warn); }
+.status-pill.err   { background: rgba(126,36,22,0.14); color: var(--err); }
+.status-pill.neutral { background: rgba(29,22,15,0.08); color: var(--muted); }
+.status-copy { color: var(--muted); font-size: 13px; }
 
-.status-pill.ok {
-  background: rgba(27, 124, 87, 0.14);
-  color: var(--ok);
-}
-
-.status-pill.warn {
-  background: rgba(158, 105, 17, 0.15);
-  color: var(--warn);
-}
-
-.status-pill.neutral {
-  background: rgba(29, 22, 15, 0.08);
-  color: var(--muted);
-}
-
-.mode-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.mode-button {
-  width: 100%;
-  padding: 12px 14px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.48);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.mode-button.active {
-  background: linear-gradient(135deg, #d45833, #a8341f);
-  color: #fff;
-}
-
-.flow-panel,
-.session-strip,
-.error-panel {
+/* ── 通用面板 ──────────────────────────────────────── */
+.home-panel, .flow-panel, .session-strip, .error-panel {
   margin-top: 12px;
-  padding: 16px;
+  padding: 18px 16px;
   border: 1px solid var(--line);
   border-radius: 22px;
-  background: rgba(255, 250, 245, 0.7);
-  backdrop-filter: blur(10px);
+  background: rgba(255,250,245,0.75);
+  backdrop-filter: blur(12px);
 }
-
-.flow-head {
-  display: grid;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-
-.flow-head-secondary {
-  margin-top: 18px;
-}
-
-.flow-step,
-.session-label,
-.field span {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.flow-head h2 {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.1;
-}
-
-.flow-copy {
-  max-width: 34ch;
-  margin: 0 0 12px;
-  color: var(--muted);
-}
-
 .field {
-  display: block;
-  margin: 12px 0 10px;
+  display: block; margin: 10px 0 8px;
 }
-
 .field span {
-  display: block;
-  margin-bottom: 7px;
+  display: block; margin-bottom: 6px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
 }
 
-textarea,
-button {
-  width: 100%;
-  border: 0;
-  border-radius: 16px;
-  font: inherit;
+/* ── 表单元素 ──────────────────────────────────────── */
+.full-button { border: 0; border-radius: 16px; padding: 13px 16px; font: inherit; font-weight: 700; cursor: pointer; width: 100%; }
+.primary-button { background: linear-gradient(135deg, #d45833, #a8341f); color: #fff; }
+.secondary-button { background: rgba(29,22,15,0.08); color: var(--ink); }
+.ghost-button { background: transparent; color: var(--accent-deep); outline: 1px solid rgba(212,79,45,0.3); }
+input[type="text"] {
+  width: 100%; padding: 12px 14px; border: 0; border-radius: 14px;
+  background: rgba(255,255,255,0.8); color: var(--ink); font: inherit;
+  border: 1.5px solid transparent;
+  transition: border-color 0.15s;
 }
+input[type="text"]:focus { outline: none; border-color: var(--accent); }
+input[type="text"]::placeholder { color: rgba(114,98,83,0.6); }
 
-textarea {
-  padding: 12px 13px;
-  resize: vertical;
-  min-height: 118px;
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--ink);
-}
+/* ── 首页 ──────────────────────────────────────────── */
+.divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--muted); font-size: 12px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
-button {
-  padding: 12px 14px;
-  font-weight: 700;
-  cursor: pointer;
+/* ── 房间号展示 ────────────────────────────────────── */
+.room-id-display {
+  text-align: center; margin-bottom: 12px;
 }
+.room-id-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 4px;
+}
+.room-id-value {
+  font-size: 36px; font-weight: 700; letter-spacing: 0.25em;
+  color: var(--accent); font-variant-numeric: tabular-nums;
+}
+.hint-text { color: var(--muted); font-size: 13px; margin-bottom: 12px; text-align: center; }
+.wait-hint { text-align: center; color: var(--warn); font-size: 13px; margin-top: 10px; animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
 
-.primary-button {
-  background: linear-gradient(135deg, #d45833, #a8341f);
-  color: #fff;
-}
+/* ── Guest 等待 ────────────────────────────────────── */
+.joining-room-id { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; color: var(--accent); text-align: center; margin-top: 8px; }
 
-.secondary-button {
-  background: rgba(29, 22, 15, 0.08);
-  color: var(--ink);
+/* ── 已连接 ────────────────────────────────────────── */
+.connected-panel { text-align: center; }
+.connected-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 14px; border-radius: 999px;
+  background: rgba(27,124,87,0.14); color: var(--ok);
+  font-size: 13px; font-weight: 700; margin-bottom: 8px;
 }
+.peer-name { font-size: 17px; font-weight: 700; margin: 4px 0 8px; }
 
-.ghost-button {
-  background: transparent;
-  color: var(--accent-deep);
-  outline: 1px solid rgba(212, 79, 45, 0.28);
-}
+/* ── 底部操作栏 ────────────────────────────────────── */
+.session-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px; }
+.session-strip button { padding: 10px 12px; }
 
-.session-strip {
-  display: grid;
-  gap: 14px;
-}
+/* ── 错误 ──────────────────────────────────────────── */
+.error-panel { color: var(--err); background: rgba(196,62,38,0.09); font-size: 13px; }
 
-.session-peer {
-  margin: 6px 0 0;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.session-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.error-panel {
-  color: #7e2416;
-  background: rgba(196, 62, 38, 0.09);
-}
-
-.hidden {
-  display: none;
-}
+/* ── 隐藏 ──────────────────────────────────────────── */
+.hidden { display: none !important; }

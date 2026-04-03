@@ -12,80 +12,61 @@
         <div class="hero-copy">
           <p class="eyebrow">BiliTogether</p>
           <h1>一起看 B 站</h1>
-          <p class="subtitle"></p>
         </div>
         <div class="hero-status">
           <span id="connectionStatus" class="status-pill neutral">未连接</span>
-          <p id="sessionMeta" class="status-copy">先选择你是房主还是加入方。</p>
+          <p id="sessionMeta" class="status-copy">分享房间号，快速一起看。</p>
         </div>
       </section>
 
-      <section class="mode-switch">
-        <button id="hostModeButton" class="mode-button active" type="button">我是房主</button>
-        <button id="guestModeButton" class="mode-button" type="button">我要加入</button>
-      </section>
-
-      <section id="hostPanel" class="flow-panel">
-        <div class="flow-head">
-          <p class="flow-step">Step 1</p>
-          <h2>创建连接码</h2>
-        </div>
-        <p class="flow-copy">点击一次生成，把连接码发给对方即可。</p>
-        <button id="createInviteButton" class="primary-button" type="button">生成连接码</button>
+      <!-- 首页：创建 or 加入 -->
+      <section id="homePanel" class="home-panel">
+        <button id="createRoomBtn" class="primary-button full-button" type="button">创建房间</button>
+        <div class="divider"><span>或</span></div>
         <label class="field">
-          <span>我的连接码</span>
-          <textarea id="inviteOutput" rows="6" readonly placeholder="生成后会显示在这里"></textarea>
+          <span>输入房间号加入</span>
+          <input id="roomIdInput" type="text" placeholder="例如: BT7X9K" maxlength="8" />
         </label>
-        <button id="copyInviteButton" class="secondary-button" type="button">复制连接码</button>
-
-        <div class="flow-head flow-head-secondary">
-          <p class="flow-step">Step 2</p>
-          <h2>贴回确认码</h2>
-        </div>
-        <p class="flow-copy">对方加入后会发回一段确认码，你贴回来就完成连接。</p>
-        <label class="field">
-          <span>对方确认码</span>
-          <textarea id="responseInput" rows="6" placeholder="把对方发回来的确认码粘贴到这里"></textarea>
-        </label>
-        <button id="completeHandshakeButton" class="secondary-button" type="button">完成连接</button>
+        <button id="joinRoomBtn" class="secondary-button full-button" type="button">加入房间</button>
       </section>
 
+      <!-- Host 等待 -->
+      <section id="hostPanel" class="flow-panel hidden">
+        <div class="room-id-display">
+          <p class="room-id-label">房间号</p>
+          <p id="roomIdDisplay" class="room-id-value">——</p>
+        </div>
+        <p class="hint-text">把这个房间号发给他人，对方输入即可加入。</p>
+        <button id="copyRoomIdBtn" class="primary-button full-button" type="button">复制房间号</button>
+        <p id="hostHint" class="wait-hint">等待对方加入...</p>
+      </section>
+
+      <!-- Guest 加入中 -->
       <section id="guestPanel" class="flow-panel hidden">
-        <div class="flow-head">
-          <p class="flow-step">Step 1</p>
-          <h2>贴入连接码</h2>
-        </div>
-        <p class="flow-copy">把房主发来的连接码贴进来，立即生成你的确认码。</p>
-        <label class="field">
-          <span>房主连接码</span>
-          <textarea id="inviteInput" rows="6" placeholder="把房主发来的连接码粘贴到这里"></textarea>
-        </label>
-        <button id="acceptInviteButton" class="primary-button" type="button">生成确认码</button>
-
-        <div class="flow-head flow-head-secondary">
-          <p class="flow-step">Step 2</p>
-          <h2>发回确认码</h2>
-        </div>
-        <p class="flow-copy">把生成后的确认码发给房主，等待对方点完成连接。</p>
-        <label class="field">
-          <span>我的确认码</span>
-          <textarea id="responseOutput" rows="6" readonly placeholder="生成后会显示在这里"></textarea>
-        </label>
-        <button id="copyResponseButton" class="secondary-button" type="button">复制确认码</button>
+        <p class="hint-text">正在加入房间...</p>
+        <p id="joiningRoomId" class="joining-room-id">——</p>
       </section>
 
-      <section class="session-strip">
-        <div class="session-copy">
-          <p class="session-label">当前会话</p>
-          <p id="remotePeer" class="session-peer">尚未连接对方</p>
+      <!-- 已连接 -->
+      <section id="connectedPanel" class="flow-panel connected-panel hidden">
+        <div class="connected-badge">
+          <span class="connected-icon">✓</span>
+          <span>已连接</span>
         </div>
+        <p id="peerName" class="peer-name"></p>
+        <p class="hint-text">去 B 站打开视频，播放会自动同步。</p>
+      </section>
+
+      <!-- 错误 -->
+      <section id="errorPanel" class="error-panel hidden"></section>
+
+      <!-- 底部操作 -->
+      <section class="session-strip">
         <div class="session-actions">
           <button id="openBilibiliButton" class="secondary-button" type="button">打开 B 站</button>
           <button id="resetSessionButton" class="ghost-button" type="button">重置</button>
         </div>
       </section>
-
-      <section id="errorPanel" class="error-panel hidden"></section>
     </main>
 
     <script src="../shared/constants.js"></script>

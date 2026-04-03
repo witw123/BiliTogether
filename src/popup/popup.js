@@ -1,175 +1,162 @@
 (function initPopup() {
   const { MESSAGE_TYPES } = BiliTogetherConstants;
+  const $ = (id) => document.getElementById(id);
 
-  const elements = {
-    connectionStatus: document.getElementById("connectionStatus"),
-    sessionMeta: document.getElementById("sessionMeta"),
-    hostModeButton: document.getElementById("hostModeButton"),
-    guestModeButton: document.getElementById("guestModeButton"),
-    hostPanel: document.getElementById("hostPanel"),
-    guestPanel: document.getElementById("guestPanel"),
-    createInviteButton: document.getElementById("createInviteButton"),
-    inviteOutput: document.getElementById("inviteOutput"),
-    copyInviteButton: document.getElementById("copyInviteButton"),
-    responseInput: document.getElementById("responseInput"),
-    completeHandshakeButton: document.getElementById("completeHandshakeButton"),
-    inviteInput: document.getElementById("inviteInput"),
-    acceptInviteButton: document.getElementById("acceptInviteButton"),
-    responseOutput: document.getElementById("responseOutput"),
-    copyResponseButton: document.getElementById("copyResponseButton"),
-    remotePeer: document.getElementById("remotePeer"),
-    openBilibiliButton: document.getElementById("openBilibiliButton"),
-    resetSessionButton: document.getElementById("resetSessionButton"),
-    errorPanel: document.getElementById("errorPanel")
+  const els = {
+    connectionStatus: $("connectionStatus"),
+    sessionMeta: $("sessionMeta"),
+    homePanel: $("homePanel"),
+    createRoomBtn: $("createRoomBtn"),
+    roomIdInput: $("roomIdInput"),
+    joinRoomBtn: $("joinRoomBtn"),
+    hostPanel: $("hostPanel"),
+    roomIdDisplay: $("roomIdDisplay"),
+    copyRoomIdBtn: $("copyRoomIdBtn"),
+    hostHint: $("hostHint"),
+    guestPanel: $("guestPanel"),
+    joiningRoomId: $("joiningRoomId"),
+    connectedPanel: $("connectedPanel"),
+    peerName: $("peerName"),
+    errorPanel: $("errorPanel"),
+    openBilibiliButton: $("openBilibiliButton"),
+    resetSessionButton: $("resetSessionButton")
   };
 
-  let currentMode = "host";
-
-  function setMode(mode) {
-    currentMode = mode;
-    elements.hostModeButton.classList.toggle("active", mode === "host");
-    elements.guestModeButton.classList.toggle("active", mode === "guest");
-    elements.hostPanel.classList.toggle("hidden", mode !== "host");
-    elements.guestPanel.classList.toggle("hidden", mode !== "guest");
-  }
-
-  function connectPort() {
-    const port = chrome.runtime.connect({ name: "popup" });
-    port.onMessage.addListener((message) => {
-      if (message.type === MESSAGE_TYPES.APP_STATE_UPDATED) {
-        render(message.payload);
-      }
-    });
-  }
-
+  // ── 工具 ──────────────────────────────────────
   async function request(type, payload = {}) {
-    const response = await chrome.runtime.sendMessage({ type, payload });
-    if (!response?.ok) {
-      throw new Error(response?.error || "请求失败");
-    }
-    return response.data;
+    const resp = await chrome.runtime.sendMessage({ type, payload });
+    if (!resp?.ok) throw new Error(resp?.error || "请求失败");
+    return resp.data;
   }
 
-  function render(appState) {
-    elements.connectionStatus.textContent = phaseText(appState.connectionPhase);
-    elements.connectionStatus.className = `status-pill ${phaseTone(appState.connectionPhase)}`;
-    elements.sessionMeta.textContent = metaText(appState.connectionPhase, appState.isConnected);
-    elements.remotePeer.textContent = appState.remotePeer
-      ? `已配对：${appState.remotePeer.nickname || "远端成员"}`
-      : "尚未连接对方";
-    elements.inviteOutput.value = appState.lastInvite || "";
-    elements.errorPanel.textContent = appState.lastError || "";
-    elements.errorPanel.classList.toggle("hidden", !appState.lastError);
+  function showError(msg) {
+    els.errorPanel.textContent = msg;
+    els.errorPanel.classList.remove("hidden");
+  }
 
-    if (appState.connectionPhase === "answer-created") {
-      setMode("guest");
-    } else if (["offer-created", "connecting", "connected"].includes(appState.connectionPhase)) {
-      setMode("host");
-    }
+  function clearError() {
+    els.errorPanel.classList.add("hidden");
+    els.errorPanel.textContent = "";
+  }
+
+  function showOnly(...panels) {
+    [els.homePanel, els.hostPanel, els.guestPanel, els.connectedPanel].forEach(p => p.classList.add("hidden"));
+    panels.forEach(p => p.classList.remove("hidden"));
   }
 
   function phaseText(phase) {
     switch (phase) {
-      case "creating-offer":
-        return "生成中";
-      case "offer-created":
-        return "等待对方";
-      case "answer-created":
-        return "等待房主";
-      case "connecting":
-        return "连接中";
-      case "connected":
-        return "已连接";
-      case "failed":
-        return "连接失败";
-      default:
-        return "未连接";
+      case "connecting": return "连接中";
+      case "connected":   return "已连接";
+      case "failed":     return "连接失败";
+      default:           return "未连接";
     }
   }
 
   function phaseTone(phase) {
-    if (phase === "connected") {
-      return "ok";
-    }
-    if (["creating-offer", "offer-created", "answer-created", "connecting", "failed"].includes(phase)) {
-      return "warn";
-    }
+    if (phase === "connected") return "ok";
+    if (phase === "failed")    return "err";
+    if (phase === "connecting") return "warn";
     return "neutral";
   }
 
-  function metaText(phase, isConnected) {
-    if (isConnected) {
-      return "双方已连通，播放控制和聊天会实时同步。";
+  // ── 渲染状态 ────────────────────────────────────
+  function render(appState) {
+    els.connectionStatus.textContent = phaseText(appState.connectionPhase);
+    els.connectionStatus.className = `status-pill ${phaseTone(appState.connectionPhase)}`;
+
+    if (appState.connectionPhase === "connected") {
+      els.peerName.textContent = `正在和 ${appState.remotePeer?.nickname || "对方"} 一起看`;
     }
-    if (phase === "offer-created") {
-      return "把连接码发给对方，等对方把确认码发回来。";
+
+    // 空闲时显示首页
+    if (appState.connectionPhase === "idle" && !els.hostPanel.classList.contains("hidden") === false) {
+      showOnly(els.homePanel);
     }
-    if (phase === "answer-created") {
-      return "把确认码发回房主，等对方点完成连接。";
-    }
-    if (phase === "connecting") {
-      return "正在建立点对点连接，请保持弹窗不要立刻关闭。";
-    }
-    return "先选择你是房主还是加入方。";
   }
 
-  async function copyText(value) {
-    if (!value) {
-      return;
+  // ── 创建房间 ────────────────────────────────────
+  async function handleCreateRoom() {
+    clearError();
+    els.createRoomBtn.disabled = true;
+    els.createRoomBtn.textContent = "创建中...";
+    try {
+      const { roomId } = await request(MESSAGE_TYPES.CREATE_ROOM);
+      els.roomIdDisplay.textContent = roomId;
+      showOnly(els.hostPanel);
+      els.sessionMeta.textContent = "把房间号发给朋友";
+      await navigator.clipboard.writeText(roomId);
+      els.copyRoomIdBtn.textContent = "已复制 ✓";
+      setTimeout(() => { els.copyRoomIdBtn.textContent = "复制房间号"; }, 2000);
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      els.createRoomBtn.disabled = false;
+      els.createRoomBtn.textContent = "创建房间";
     }
-    await navigator.clipboard.writeText(value);
   }
 
-  async function bootstrap() {
-    connectPort();
-    render(await request(MESSAGE_TYPES.GET_APP_STATE));
-
-    elements.hostModeButton.addEventListener("click", () => setMode("host"));
-    elements.guestModeButton.addEventListener("click", () => setMode("guest"));
-
-    elements.createInviteButton.addEventListener("click", async () => {
-      const result = await request(MESSAGE_TYPES.CREATE_INVITE);
-      elements.inviteOutput.value = result.invite;
-      await copyText(result.invite);
-    });
-
-    elements.copyInviteButton.addEventListener("click", async () => {
-      await copyText(elements.inviteOutput.value);
-    });
-
-    elements.acceptInviteButton.addEventListener("click", async () => {
-      const result = await request(MESSAGE_TYPES.ACCEPT_INVITE, {
-        invite: elements.inviteInput.value
-      });
-      elements.responseOutput.value = result.response;
-      await copyText(result.response);
-    });
-
-    elements.copyResponseButton.addEventListener("click", async () => {
-      await copyText(elements.responseOutput.value);
-    });
-
-    elements.completeHandshakeButton.addEventListener("click", async () => {
-      await request(MESSAGE_TYPES.COMPLETE_HANDSHAKE, {
-        response: elements.responseInput.value
-      });
-    });
-
-    elements.resetSessionButton.addEventListener("click", async () => {
-      await request(MESSAGE_TYPES.RESET_SESSION);
-      elements.responseInput.value = "";
-      elements.responseOutput.value = "";
-      elements.inviteInput.value = "";
-      setMode("host");
-    });
-
-    elements.openBilibiliButton.addEventListener("click", async () => {
-      await request(MESSAGE_TYPES.OPEN_BILIBILI);
-    });
+  // ── 加入房间 ────────────────────────────────────
+  async function handleJoinRoom() {
+    const roomId = els.roomIdInput.value.trim().toUpperCase();
+    if (!roomId) { showError("请输入房间号"); return; }
+    clearError();
+    els.joinRoomBtn.disabled = true;
+    els.joinRoomBtn.textContent = "加入中...";
+    els.joiningRoomId.textContent = roomId;
+    showOnly(els.guestPanel);
+    els.sessionMeta.textContent = `正在加入 ${roomId}...`;
+    try {
+      await request(MESSAGE_TYPES.JOIN_ROOM, { roomId: `bt_${roomId}` });
+      // 连接成功由状态更新触发
+    } catch (e) {
+      showError(e.message);
+      showOnly(els.homePanel);
+      els.sessionMeta.textContent = "分享房间号，快速一起看。";
+    } finally {
+      els.joinRoomBtn.disabled = false;
+      els.joinRoomBtn.textContent = "加入房间";
+    }
   }
 
-  bootstrap().catch((error) => {
-    elements.errorPanel.textContent = error?.message || String(error);
-    elements.errorPanel.classList.remove("hidden");
+  // ── 重置 ────────────────────────────────────────
+  async function handleReset() {
+    clearError();
+    try { await request(MESSAGE_TYPES.RESET_SESSION); } catch {}
+    els.roomIdInput.value = "";
+    showOnly(els.homePanel);
+    els.sessionMeta.textContent = "分享房间号，快速一起看。";
+  }
+
+  // ── 事件 ────────────────────────────────────────
+  els.createRoomBtn.addEventListener("click", handleCreateRoom);
+  els.joinRoomBtn.addEventListener("click", handleJoinRoom);
+  els.roomIdInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleJoinRoom(); });
+  els.copyRoomIdBtn.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(els.roomIdDisplay.textContent);
+    els.copyRoomIdBtn.textContent = "已复制 ✓";
+    setTimeout(() => { els.copyRoomIdBtn.textContent = "复制房间号"; }, 2000);
   });
+  els.resetSessionButton.addEventListener("click", handleReset);
+  els.openBilibiliButton.addEventListener("click", () => {
+    chrome.tabs.create({ url: "https://www.bilibili.com/" });
+  });
+
+  // 状态同步
+  const port = chrome.runtime.connect({ name: "popup" });
+  port.onMessage.addListener((msg) => {
+    if (msg.type === MESSAGE_TYPES.APP_STATE_UPDATED) {
+      const s = msg.payload;
+      render(s);
+      if (s.connectionPhase === "connected") {
+        showOnly(els.connectedPanel);
+        els.sessionMeta.textContent = "连接成功，开始同步！";
+      } else if (s.connectionPhase === "failed" && els.guestPanel.classList.contains("hidden") === false) {
+        showError(s.lastError || "连接失败");
+        showOnly(els.homePanel);
+      }
+    }
+  });
+
+  request(MESSAGE_TYPES.GET_APP_STATE).then(render).catch(() => {});
 })();
