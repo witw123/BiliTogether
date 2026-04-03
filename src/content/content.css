@@ -1,0 +1,192 @@
+#biltogether-root {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2147483646;
+  width: min(360px, calc(100vw - 36px));
+  color: #1d130c;
+  font: 13px/1.45 "Segoe UI", "PingFang SC", sans-serif;
+}
+
+#biltogether-root * {
+  box-sizing: border-box;
+}
+
+.biltogether-panel {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 111, 72, 0.32), transparent 35%),
+    linear-gradient(180deg, rgba(255, 248, 242, 0.96), rgba(248, 238, 229, 0.94));
+  box-shadow: 0 20px 44px rgba(19, 10, 0, 0.26);
+  backdrop-filter: blur(18px);
+}
+
+.biltogether-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+}
+
+.biltogether-title strong {
+  display: block;
+  font-size: 15px;
+}
+
+.biltogether-title span {
+  color: rgba(29, 19, 12, 0.62);
+  font-size: 12px;
+}
+
+.biltogether-toggle {
+  width: auto;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(29, 19, 12, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.biltogether-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+.biltogether-panel.collapsed .biltogether-body {
+  display: none;
+}
+
+.biltogether-meta {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.biltogether-card {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.biltogether-card-label {
+  margin: 0 0 4px;
+  color: rgba(29, 19, 12, 0.58);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.biltogether-card-value {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.biltogether-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.biltogether-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(29, 19, 12, 0.08);
+}
+
+.biltogether-member.self {
+  background: rgba(204, 74, 47, 0.14);
+}
+
+.biltogether-chat {
+  display: grid;
+  gap: 10px;
+}
+
+.biltogether-chat-list {
+  max-height: 200px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.biltogether-chat-item {
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.biltogether-chat-item + .biltogether-chat-item {
+  margin-top: 8px;
+}
+
+.biltogether-chat-item strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.biltogether-chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.biltogether-chat-form input {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: inherit;
+}
+
+.biltogether-chat-form button {
+  width: auto;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #cf562f, #9f2d1f);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.biltogether-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: 320px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(22, 13, 8, 0.9);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 2147483647;
+}
+
+.biltogether-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.biltogether-muted {
+  color: rgba(29, 19, 12, 0.58);
+}
+
+@media (max-width: 720px) {
+  #biltogether-root {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: min(340px, calc(100vw - 24px));
+  }
+}

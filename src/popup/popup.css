@@ -1,0 +1,237 @@
+:root {
+  --paper: #f1e7d6;
+  --ink: #1d160f;
+  --muted: #726253;
+  --line: rgba(29, 22, 15, 0.12);
+  --accent: #d44f2d;
+  --accent-deep: #9d2f18;
+  --ok: #1b7c57;
+  --warn: #9e6911;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 390px;
+  color: var(--ink);
+  font: 14px/1.45 "Segoe UI", "PingFang SC", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(228, 91, 45, 0.22), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(49, 22, 8, 0.14), transparent 28%),
+    linear-gradient(180deg, #f7efe3 0%, #eadcc6 100%);
+}
+
+.popup-shell {
+  padding: 18px;
+}
+
+.hero {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.subtitle {
+  max-width: 28ch;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.hero-status {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0 0;
+  border-top: 1px solid rgba(29, 22, 15, 0.12);
+}
+
+.status-copy {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(29, 22, 15, 0.08);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-pill.ok {
+  background: rgba(27, 124, 87, 0.14);
+  color: var(--ok);
+}
+
+.status-pill.warn {
+  background: rgba(158, 105, 17, 0.15);
+  color: var(--warn);
+}
+
+.status-pill.neutral {
+  background: rgba(29, 22, 15, 0.08);
+  color: var(--muted);
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.mode-button {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-button.active {
+  background: linear-gradient(135deg, #d45833, #a8341f);
+  color: #fff;
+}
+
+.flow-panel,
+.session-strip,
+.error-panel {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 250, 245, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.flow-head {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.flow-head-secondary {
+  margin-top: 18px;
+}
+
+.flow-step,
+.session-label,
+.field span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.flow-head h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.flow-copy {
+  max-width: 34ch;
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.field {
+  display: block;
+  margin: 12px 0 10px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 7px;
+}
+
+textarea,
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  font: inherit;
+}
+
+textarea {
+  padding: 12px 13px;
+  resize: vertical;
+  min-height: 118px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+}
+
+button {
+  padding: 12px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, #d45833, #a8341f);
+  color: #fff;
+}
+
+.secondary-button {
+  background: rgba(29, 22, 15, 0.08);
+  color: var(--ink);
+}
+
+.ghost-button {
+  background: transparent;
+  color: var(--accent-deep);
+  outline: 1px solid rgba(212, 79, 45, 0.28);
+}
+
+.session-strip {
+  display: grid;
+  gap: 14px;
+}
+
+.session-peer {
+  margin: 6px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.session-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.error-panel {
+  color: #7e2416;
+  background: rgba(196, 62, 38, 0.09);
+}
+
+.hidden {
+  display: none;
+}

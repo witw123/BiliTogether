@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "BiliTogether",
+  "description": "双人一起看 B 站插件，支持手动邀请、聊天和抢控制。",
+  "version": "0.2.0",
+  "permissions": ["storage", "tabs", "scripting", "offscreen"],
+  "host_permissions": [
+    "https://www.bilibili.com/*",
+    "https://bangumi.bilibili.com/*",
+    "https://*.bilibili.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "action": {
+    "default_title": "BiliTogether",
+    "default_popup": "src/popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.bilibili.com/video/*",
+        "https://www.bilibili.com/bangumi/play/*",
+        "https://bangumi.bilibili.com/anime/*"
+      ],
+      "js": [
+        "src/shared/constants.js",
+        "src/shared/utils.js",
+        "src/content/content.js"
+      ],
+      "css": ["src/content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/content/content.css"],
+      "matches": ["https://*.bilibili.com/*"]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self'"
+  }
+}
