@@ -1,5 +1,8 @@
 (function initUtils(globalScope) {
-  const { CHAT_HISTORY_LIMIT } = globalScope.BiliTogetherConstants;
+  const constants =
+    globalScope.BiliTogetherConstants ||
+    (typeof require === "function" ? require("./constants.js") : {});
+  const { CHAT_HISTORY_LIMIT } = constants;
 
   function now() {
     return Date.now();
@@ -87,7 +90,7 @@
     };
   }
 
-  globalScope.BiliTogetherUtils = {
+  const utils = {
     canonicalizePlaybackState,
     compareEventOrder,
     createFallbackNickname,
@@ -100,4 +103,9 @@
     shallowEqualVideoIdentity,
     trimChatHistory
   };
+
+  globalScope.BiliTogetherUtils = utils;
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = utils;
+  }
 })(typeof globalThis !== "undefined" ? globalThis : window);

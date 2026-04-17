@@ -47,7 +47,7 @@ body {
 .status-copy { color: var(--muted); font-size: 13px; }
 
 /* ── 通用面板 ──────────────────────────────────────── */
-.home-panel, .flow-panel, .session-strip, .error-panel {
+.home-panel, .flow-panel, .session-strip, .error-panel, .diagnostic-panel {
   margin-top: 12px;
   padding: 18px 16px;
   border: 1px solid var(--line);
@@ -112,8 +112,31 @@ input[type="text"]::placeholder { color: rgba(114,98,83,0.6); }
 }
 .peer-name { font-size: 17px; font-weight: 700; margin: 4px 0 8px; }
 
+/* ── 诊断 ─────────────────────────────────────────── */
+.diagnostic-panel {
+  display: grid;
+  gap: 8px;
+}
+.diagnostic-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.diagnostic-row span { color: var(--muted); }
+.diagnostic-row strong {
+  max-width: 190px;
+  text-align: right;
+  word-break: break-word;
+}
+
 /* ── 底部操作栏 ────────────────────────────────────── */
-.session-strip { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px; }
+.session-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 14px;
+}
 .session-strip button { padding: 10px 12px; }
 
 /* ── 错误 ──────────────────────────────────────────── */

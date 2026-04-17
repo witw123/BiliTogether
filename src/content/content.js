@@ -1,6 +1,14 @@
 (function initContent() {
-  const { MESSAGE_TYPES, REMOTE_APPLY_GUARD_MS, ROOM_EVENT_TYPES, TOAST_DURATION_MS, VIDEO_STATE_POLL_MS } =
-    BiliTogetherConstants;
+  const {
+    HEARTBEAT_SYNC_MS,
+    MESSAGE_TYPES,
+    REMOTE_APPLY_GUARD_MS,
+    REMOTE_NAVIGATION_GUARD_MS,
+    ROOM_EVENT_TYPES,
+    ROUTE_CHANGE_DEBOUNCE_MS,
+    SEEK_SYNC_THRESHOLD_S,
+    TOAST_DURATION_MS
+  } = BiliTogetherConstants;
   const { createFallbackNickname, now, shallowEqualVideoIdentity } = BiliTogetherUtils;
 
   const state = {
@@ -10,15 +18,22 @@
     toastTimer: null,
     chatList: null,
     chatInput: null,
-    lastUrl: location.href,
+    appState: null,
     suppressEventsUntil: 0,
-    videoPollTimer: null
+    lastAppliedRemoteEventId: "",
+    lastUrl: location.href,
+    heartbeatTimer: null,
+    routeTimer: null,
+    videoObserver: null,
+    currentVideo: null,
+    currentVideoCleanup: null
   };
 
   function createUi() {
     if (state.root) {
       return;
     }
+
     state.root = document.createElement("div");
     state.root.id = "biltogether-root";
     state.root.innerHTML = `
@@ -44,7 +59,7 @@
           <section>
             <p class="biltogether-card-label">状态</p>
             <div id="biltogether-members" class="biltogether-members">
-              <span class="biltogether-muted">去插件弹窗里完成邀请配对。</span>
+              <span class="biltogether-muted">去插件弹窗里完成房间配对。</span>
             </div>
           </section>
           <section class="biltogether-chat">
@@ -124,6 +139,7 @@
       const videoMatch = url.pathname.match(/\/video\/([^/?]+)/);
       const bangumiMatch = url.pathname.match(/\/bangumi\/play\/([^/?]+)/);
       const title = (document.querySelector("h1")?.textContent || document.title || "").trim();
+
       if (videoMatch) {
         return {
           type: "video",
@@ -135,6 +151,7 @@
           url: url.href
         };
       }
+
       if (bangumiMatch) {
         return {
           type: "bangumi",
@@ -146,6 +163,7 @@
           url: url.href
         };
       }
+
       return {
         type: "unknown",
         key: url.href,
@@ -189,10 +207,13 @@
       nickname: detectNickname(),
       videoIdentity: adapter.getVideoIdentity()
     });
-    await syncPlaybackState();
+    await syncPlaybackState(true);
   }
 
-  async function syncPlaybackState() {
+  async function syncPlaybackState(force = false) {
+    if ((!state.appState?.isConnected && !force) || !state.currentVideo) {
+      return;
+    }
     const playbackState = adapter.getPlaybackState();
     if (!playbackState) {
       return;
@@ -205,15 +226,21 @@
 
   function applyPlaybackState(playbackState, kind = "") {
     state.suppressEventsUntil = now() + REMOTE_APPLY_GUARD_MS;
+
     if (typeof playbackState.playbackRate === "number") {
-      adapter.setPlaybackRate(playbackState.playbackRate);
+      const currentRate = adapter.getPlaybackState()?.playbackRate || 1;
+      if (Math.abs(currentRate - playbackState.playbackRate) > 0.01) {
+        adapter.setPlaybackRate(playbackState.playbackRate);
+      }
     }
+
     if (typeof playbackState.currentTime === "number") {
-      const current = adapter.getPlaybackState()?.currentTime || 0;
-      if (Math.abs(current - playbackState.currentTime) > 1) {
+      const currentTime = adapter.getPlaybackState()?.currentTime || 0;
+      if (Math.abs(currentTime - playbackState.currentTime) > SEEK_SYNC_THRESHOLD_S) {
         adapter.seekTo(playbackState.currentTime);
       }
     }
+
     if (kind === ROOM_EVENT_TYPES.SYNC_PLAY || playbackState.isPlaying) {
       adapter.play();
     }
@@ -223,12 +250,14 @@
   }
 
   function applyRemoteEvent(envelope) {
-    if (!envelope?.kind) {
+    if (!envelope?.kind || envelope.id === state.lastAppliedRemoteEventId) {
       return;
     }
+    state.lastAppliedRemoteEventId = envelope.id;
+
     if (envelope.kind === ROOM_EVENT_TYPES.STATE_SNAPSHOT) {
       if (envelope.data?.videoIdentity && !shallowEqualVideoIdentity(envelope.data.videoIdentity, adapter.getVideoIdentity())) {
-        state.suppressEventsUntil = now() + REMOTE_APPLY_GUARD_MS * 3;
+        state.suppressEventsUntil = now() + REMOTE_NAVIGATION_GUARD_MS;
         showToast(`正在同步到 ${envelope.data.videoIdentity.title || "房间视频"}`);
         adapter.navigateToVideo(envelope.data.videoIdentity);
         return;
@@ -238,14 +267,16 @@
       }
       return;
     }
+
     if (envelope.kind === ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE) {
-      if (!shallowEqualVideoIdentity(envelope.data.videoIdentity, adapter.getVideoIdentity())) {
-        state.suppressEventsUntil = now() + REMOTE_APPLY_GUARD_MS * 3;
-        showToast(`正在跳转到 ${envelope.data.videoIdentity.title || "对方视频"}`);
+      if (!shallowEqualVideoIdentity(envelope.data?.videoIdentity, adapter.getVideoIdentity())) {
+        state.suppressEventsUntil = now() + REMOTE_NAVIGATION_GUARD_MS;
+        showToast(`正在跳转到 ${envelope.data.videoIdentity?.title || "对方视频"}`);
         adapter.navigateToVideo(envelope.data.videoIdentity);
       }
       return;
     }
+
     if (envelope.data?.playbackState) {
       applyPlaybackState(envelope.data.playbackState, envelope.kind);
     }
@@ -255,10 +286,12 @@
     if (now() < state.suppressEventsUntil) {
       return;
     }
+
     const playbackState = adapter.getPlaybackState();
     if (!playbackState) {
       return;
     }
+
     requestRuntime(MESSAGE_TYPES.CONTENT_CONTROL_EVENT, {
       kind,
       playbackState,
@@ -266,48 +299,107 @@
     }).catch(() => {});
   }
 
-  function bindVideoListeners() {
-    const wire = () => {
-      const video = findVideoElement();
-      if (!video || video.dataset.biliTogetherBound === "1") {
-        return;
-      }
-      video.dataset.biliTogetherBound = "1";
-      video.addEventListener("play", () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_PLAY));
-      video.addEventListener("pause", () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_PAUSE));
-      video.addEventListener("seeked", () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_SEEK));
-      video.addEventListener("ratechange", () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_RATE));
-      syncPlaybackState().catch(() => {});
+  function bindVideo(video) {
+    if (!video || state.currentVideo === video) {
+      return;
+    }
+
+    state.currentVideoCleanup?.();
+    state.currentVideo = video;
+
+    const onPlay = () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_PLAY);
+    const onPause = () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_PAUSE);
+    const onSeeked = () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_SEEK);
+    const onRateChange = () => handleVideoEvent(ROOM_EVENT_TYPES.SYNC_RATE);
+
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("ratechange", onRateChange);
+
+    state.currentVideoCleanup = () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("ratechange", onRateChange);
     };
 
-    wire();
-    const observer = new MutationObserver(() => wire());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
+    syncPlaybackState(true).catch(() => {});
   }
 
-  function monitorRouteChanges() {
-    setInterval(() => {
+  function refreshVideoBinding() {
+    const video = findVideoElement();
+    if (video) {
+      bindVideo(video);
+      return;
+    }
+    state.currentVideoCleanup?.();
+    state.currentVideoCleanup = null;
+    state.currentVideo = null;
+  }
+
+  function startVideoObserver() {
+    refreshVideoBinding();
+    state.videoObserver = new MutationObserver(() => refreshVideoBinding());
+    state.videoObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function scheduleRouteSync() {
+    clearTimeout(state.routeTimer);
+    state.routeTimer = setTimeout(() => {
       if (location.href === state.lastUrl) {
         return;
       }
       state.lastUrl = location.href;
-      announceReady().catch(() => {});
-      handleVideoEvent(ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE);
-    }, 1000);
+      announceReady()
+        .then(() => {
+          handleVideoEvent(ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE);
+        })
+        .catch(() => {});
+    }, ROUTE_CHANGE_DEBOUNCE_MS);
+  }
+
+  function installRouteHooks() {
+    const wrapHistoryMethod = (name) => {
+      const original = history[name];
+      history[name] = function wrappedHistoryMethod(...args) {
+        const result = original.apply(this, args);
+        scheduleRouteSync();
+        return result;
+      };
+    };
+
+    wrapHistoryMethod("pushState");
+    wrapHistoryMethod("replaceState");
+    window.addEventListener("popstate", scheduleRouteSync);
   }
 
   function render(appState) {
+    state.appState = appState;
+
     const statusNode = document.getElementById("biltogether-status");
     const syncStateNode = document.getElementById("biltogether-sync-state");
     const peerNode = document.getElementById("biltogether-peer");
     const membersNode = document.getElementById("biltogether-members");
 
-    statusNode.textContent = appState.isConnected ? "已连接" : "未连接";
-    syncStateNode.textContent = appState.isConnected ? "实时同步中" : "待命";
+    const phase = appState.connectionPhase;
+    statusNode.textContent =
+      phase === "connected"
+        ? "已连接"
+        : phase === "hosting"
+          ? "等待加入"
+          : phase === "joining"
+            ? "加入中"
+            : phase === "disconnected"
+              ? "已断开"
+              : phase === "failed"
+                ? "连接失败"
+                : "未连接";
+    syncStateNode.textContent = appState.isConnected ? "实时同步中" : phase === "hosting" ? "等待对方" : "待命";
     peerNode.textContent = appState.remotePeer?.nickname || "未连接";
     membersNode.innerHTML = appState.isConnected
       ? `<span class="biltogether-member self">${escapeHtml(appState.identity.nickname)}<small>你</small></span><span class="biltogether-member">${escapeHtml(appState.remotePeer?.nickname || "远端成员")}</span>`
-      : '<span class="biltogether-muted">去插件弹窗里完成邀请配对。</span>';
+      : '<span class="biltogether-muted">去插件弹窗里完成房间配对。</span>';
     renderChat(appState.sessionState?.chatMessages || []);
   }
 
@@ -316,6 +408,7 @@
       state.chatList.innerHTML = '<div class="biltogether-muted">连接成功后可以在这里聊天。</div>';
       return;
     }
+
     state.chatList.innerHTML = messages
       .slice(-20)
       .map(
@@ -337,13 +430,19 @@
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   }
 
+  function startHeartbeat() {
+    clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = setInterval(() => {
+      syncPlaybackState().catch(() => {});
+    }, HEARTBEAT_SYNC_MS);
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === MESSAGE_TYPES.APP_STATE_UPDATED) {
       render(message.payload);
     }
     if (message.type === MESSAGE_TYPES.APPLY_REMOTE_EVENT) {
       applyRemoteEvent(message.payload.event);
-      syncPlaybackState().catch(() => {});
     }
     if (message.type === MESSAGE_TYPES.SHOW_TOAST) {
       showToast(message.payload.text, message.payload.duration);
@@ -352,16 +451,11 @@
     return false;
   });
 
-  function startStatePolling() {
-    clearInterval(state.videoPollTimer);
-    state.videoPollTimer = setInterval(() => syncPlaybackState().catch(() => {}), VIDEO_STATE_POLL_MS);
-  }
-
   async function bootstrap() {
     createUi();
-    bindVideoListeners();
-    monitorRouteChanges();
-    startStatePolling();
+    startVideoObserver();
+    installRouteHooks();
+    startHeartbeat();
     await announceReady();
   }
 

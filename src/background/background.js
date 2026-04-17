@@ -1,462 +1,278 @@
-importScripts("../shared/constants.js", "../shared/utils.js", "../shared/storage.js");
+importScripts("../shared/constants.js", "../shared/utils.js", "../shared/storage.js", "../shared/session.js");
 
 const {
-  DEFAULT_SESSION_STATE,
+  CONNECTION_PHASES,
   MESSAGE_TYPES,
-  PEERJS_KEY,
-  PEER_OPTIONS,
+  OFFSCREEN_COMMAND_TYPES,
+  OFFSCREEN_EVENT_TYPES,
   ROOM_EVENT_TYPES,
   TOAST_DURATION_MS
 } = BiliTogetherConstants;
+const { generateRoomCode } = BiliTogetherUtils;
+const { clearSessionSnapshot, loadIdentity, loadSessionSnapshot, saveIdentity, saveSessionSnapshot } = BiliTogetherStorage;
 const {
-  canonicalizePlaybackState,
-  compareEventOrder,
-  now,
-  randomId,
-  shallowEqualVideoIdentity,
-  trimChatHistory
-} = BiliTogetherUtils;
-const { loadIdentity, saveIdentity } = BiliTogetherStorage;
+  buildEnvelope,
+  buildStateSnapshotEnvelope,
+  createInitialState,
+  hydrateSessionState,
+  reduceSessionState,
+  serializeAppState,
+  serializePersistedSession
+} = BiliTogetherSession;
 
-const PEERJS_CDN = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
+const OFFSCREEN_DOCUMENT_PATH = "src/offscreen/offscreen.html";
 
-const state = {
-  identity: null,
+const runtime = {
   popupPorts: new Set(),
   contentTabId: null,
-  remotePeer: null,
-  connectionPhase: "idle", // idle | connecting | connected | failed
-  lastError: "",
-  sessionState: JSON.parse(JSON.stringify(DEFAULT_SESSION_STATE)),
-  peer: null,
-  dataChannel: null
+  offscreenPromise: null,
+  state: createInitialState(null)
 };
 
-let peerJsLoaded = false;
-
-// ─── PeerJS 加载 ────────────────────────────────────
-async function loadPeerJs() {
-  if (peerJsLoaded || typeof Peer !== "undefined") {
-    peerJsLoaded = true;
-    return;
+function dispatch(action, options = {}) {
+  runtime.state = reduceSessionState(runtime.state, action);
+  if (options.persist !== false) {
+    saveSessionSnapshot(serializePersistedSession(runtime.state)).catch(() => {});
   }
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = PEERJS_CDN;
-    script.onload = () => { peerJsLoaded = true; resolve(); };
-    script.onerror = reject;
-    document.head.appendChild(script);
+  if (options.broadcast !== false) {
+    broadcastState();
+  }
+}
+
+function logDiagnostic(level, message, meta = null, lastError = undefined) {
+  dispatch({
+    type: "LOG_DIAGNOSTIC",
+    level,
+    message,
+    meta,
+    lastError
   });
 }
 
-// ─── 状态管理 ────────────────────────────────────────
-function resetSessionState() {
-  state.remotePeer = null;
-  state.contentTabId = null;
-  state.connectionPhase = "idle";
-  state.lastError = "";
-  state.dataChannel = null;
-  state.sessionState = JSON.parse(JSON.stringify(DEFAULT_SESSION_STATE));
-}
-
-function serializeAppState() {
-  return {
-    identity: state.identity,
-    connectionPhase: state.connectionPhase,
-    remotePeer: state.remotePeer,
-    lastError: state.lastError,
-    sessionState: state.sessionState,
-    isConnected: state.connectionPhase === "connected",
-    peerId: state.peer?.id || null
-  };
+function logPeerUnavailable(kind) {
+  const shouldSurface =
+    runtime.state.transport.phase === CONNECTION_PHASES.DISCONNECTED ||
+    runtime.state.transport.phase === CONNECTION_PHASES.FAILED;
+  logDiagnostic("warn", "当前未连接对方", { kind }, shouldSurface ? "当前未连接对方" : undefined);
 }
 
 function broadcastState() {
-  const snapshot = serializeAppState();
-  state.popupPorts.forEach((port) => {
+  const snapshot = serializeAppState(runtime.state);
+
+  runtime.popupPorts.forEach((port) => {
     try {
       port.postMessage({ type: MESSAGE_TYPES.APP_STATE_UPDATED, payload: snapshot });
     } catch {
-      state.popupPorts.delete(port);
+      runtime.popupPorts.delete(port);
     }
   });
-  if (state.contentTabId) {
-    chrome.tabs.sendMessage(state.contentTabId, {
-      type: MESSAGE_TYPES.APP_STATE_UPDATED,
-      payload: snapshot
-    }).catch(() => {});
+
+  if (runtime.contentTabId) {
+    chrome.tabs
+      .sendMessage(runtime.contentTabId, {
+        type: MESSAGE_TYPES.APP_STATE_UPDATED,
+        payload: snapshot
+      })
+      .catch(() => {});
   }
 }
 
-function setLastError(message) {
-  state.lastError = message || "";
-  broadcastState();
-}
-
-function sendToast(text) {
-  if (!state.contentTabId) return;
-  chrome.tabs.sendMessage(state.contentTabId, {
-    type: MESSAGE_TYPES.SHOW_TOAST,
-    payload: { text, duration: TOAST_DURATION_MS }
-  }).catch(() => {});
-}
-
-// ─── Envelope ────────────────────────────────────────
-function buildEnvelope(kind, data = {}) {
-  return {
-    id: randomId("evt"),
-    kind,
-    senderId: state.identity.peerId,
-    senderNickname: state.identity.nickname,
-    timestamp: now(),
-    data
-  };
-}
-
-// ─── P2P DataChannel 事件处理 ────────────────────────
-function handlePeerData(envelope) {
-  if (!envelope?.kind) return;
-  state.remotePeer = {
-    peerId: envelope.senderId,
-    nickname: envelope.senderNickname,
-    connectionState: "connected"
-  };
-  switch (envelope.kind) {
-    case ROOM_EVENT_TYPES.STATE_SNAPSHOT:
-      state.sessionState = {
-        ...state.sessionState,
-        ...envelope.data,
-        playbackState: canonicalizePlaybackState(envelope.data.playbackState),
-        chatMessages: trimChatHistory(envelope.data.chatMessages || [])
-      };
-      applyRemoteEnvelopeToContent(envelope);
-      break;
-    case ROOM_EVENT_TYPES.CHAT_MESSAGE:
-      state.sessionState.chatMessages = trimChatHistory([
-        ...state.sessionState.chatMessages,
-        {
-          id: envelope.id,
-          senderId: envelope.senderId,
-          senderNickname: envelope.senderNickname,
-          text: envelope.data.text,
-          timestamp: envelope.timestamp
-        }
-      ]);
-      break;
-    case ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE:
-      state.sessionState.videoIdentity = envelope.data.videoIdentity;
-      state.sessionState.lastControlTimestamp = envelope.timestamp;
-      state.sessionState.lastControlId = envelope.id;
-      applyRemoteEnvelopeToContent(envelope);
-      break;
-    case ROOM_EVENT_TYPES.SYNC_PLAY:
-    case ROOM_EVENT_TYPES.SYNC_PAUSE:
-    case ROOM_EVENT_TYPES.SYNC_SEEK:
-    case ROOM_EVENT_TYPES.SYNC_RATE:
-      if (maybeApplyPlaybackEvent(envelope)) {
-        applyRemoteEnvelopeToContent(envelope);
-      }
-      break;
-    default:
-      break;
+function sendToast(text, duration = TOAST_DURATION_MS) {
+  if (!runtime.contentTabId) {
+    return;
   }
-  broadcastState();
+  chrome.tabs
+    .sendMessage(runtime.contentTabId, {
+      type: MESSAGE_TYPES.SHOW_TOAST,
+      payload: { text, duration }
+    })
+    .catch(() => {});
 }
 
-function maybeApplyPlaybackEvent(envelope) {
-  const cmp = compareEventOrder(
-    envelope.timestamp, envelope.id,
-    state.sessionState.lastControlTimestamp, state.sessionState.lastControlId
-  );
-  if (cmp < 0) return false;
-  state.sessionState.lastControlTimestamp = envelope.timestamp;
-  state.sessionState.lastControlId = envelope.id;
-  state.sessionState.playbackState = canonicalizePlaybackState({
-    ...state.sessionState.playbackState,
-    ...envelope.data.playbackState,
-    updatedAt: envelope.timestamp,
-    updatedBy: envelope.senderId
+function rememberContentTab(tabId) {
+  if (tabId) {
+    runtime.contentTabId = tabId;
+  }
+}
+
+async function hasOffscreenDocument() {
+  if (!chrome.runtime.getContexts) {
+    return false;
+  }
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
   });
-  if (envelope.data.videoIdentity) {
-    state.sessionState.videoIdentity = envelope.data.videoIdentity;
+  return contexts.length > 0;
+}
+
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen) {
+    throw new Error("当前浏览器不支持 offscreen document");
   }
-  return true;
+  if (await hasOffscreenDocument()) {
+    return;
+  }
+  if (!runtime.offscreenPromise) {
+    runtime.offscreenPromise = chrome.offscreen
+      .createDocument({
+        url: OFFSCREEN_DOCUMENT_PATH,
+        reasons: ["WEB_RTC"],
+        justification: "BiliTogether needs a long-lived WebRTC transport outside the service worker."
+      })
+      .catch((error) => {
+        if (!String(error?.message || error).includes("single offscreen document")) {
+          throw error;
+        }
+      })
+      .finally(() => {
+        runtime.offscreenPromise = null;
+      });
+  }
+  await runtime.offscreenPromise;
+}
+
+async function callOffscreen(type, payload = {}) {
+  await ensureOffscreenDocument();
+  const response = await chrome.runtime.sendMessage({
+    target: "offscreen",
+    type,
+    payload
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error || "offscreen 调用失败");
+  }
+  return response.data;
+}
+
+async function sendEnvelopeToPeer(envelope) {
+  const response = await callOffscreen(OFFSCREEN_COMMAND_TYPES.SEND_ENVELOPE, { envelope });
+  if (!response?.sent) {
+    throw new Error("当前未连接对方");
+  }
+}
+
+async function sendStateSnapshotToPeer() {
+  if (runtime.state.transport.phase !== CONNECTION_PHASES.CONNECTED || runtime.state.room.role !== "host") {
+    return;
+  }
+  const envelope = buildStateSnapshotEnvelope(runtime.state.identity, runtime.state);
+  await sendEnvelopeToPeer(envelope);
+}
+
+function applyStateSnapshotToContent() {
+  if (!runtime.contentTabId) {
+    return;
+  }
+  chrome.tabs
+    .sendMessage(runtime.contentTabId, {
+      type: MESSAGE_TYPES.APPLY_REMOTE_EVENT,
+      payload: {
+        event: buildStateSnapshotEnvelope(runtime.state.identity, runtime.state)
+      }
+    })
+    .catch(() => {});
 }
 
 function applyRemoteEnvelopeToContent(envelope) {
-  if (!state.contentTabId) return;
-  chrome.tabs.sendMessage(state.contentTabId, {
-    type: MESSAGE_TYPES.APPLY_REMOTE_EVENT,
-    payload: { event: envelope }
-  }).catch(() => {});
-}
-
-function sendStateSnapshot() {
-  const envelope = buildEnvelope(ROOM_EVENT_TYPES.STATE_SNAPSHOT, {
-    videoIdentity: state.sessionState.videoIdentity,
-    playbackState: state.sessionState.playbackState,
-    lastControlTimestamp: state.sessionState.lastControlTimestamp,
-    lastControlId: state.sessionState.lastControlId,
-    chatMessages: state.sessionState.chatMessages
-  });
-  sendViaDataChannel(envelope);
-}
-
-function sendViaDataChannel(envelope) {
-  if (state.dataChannel?.open) {
-    state.dataChannel.send(JSON.stringify(envelope));
-    return true;
+  if (!runtime.contentTabId) {
+    return;
   }
-  return false;
+  if (
+    envelope.kind !== ROOM_EVENT_TYPES.STATE_SNAPSHOT &&
+    envelope.kind !== ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE &&
+    envelope.kind !== ROOM_EVENT_TYPES.SYNC_PLAY &&
+    envelope.kind !== ROOM_EVENT_TYPES.SYNC_PAUSE &&
+    envelope.kind !== ROOM_EVENT_TYPES.SYNC_SEEK &&
+    envelope.kind !== ROOM_EVENT_TYPES.SYNC_RATE
+  ) {
+    return;
+  }
+  chrome.tabs
+    .sendMessage(runtime.contentTabId, {
+      type: MESSAGE_TYPES.APPLY_REMOTE_EVENT,
+      payload: { event: envelope }
+    })
+    .catch(() => {});
 }
 
-// ─── Host: 创建房间 ──────────────────────────────────
-function createRoom() {
-  return new Promise(async (resolve, reject) => {
-    await loadPeerJs();
-    resetSessionState();
-    state.connectionPhase = "connecting";
-    broadcastState();
+function reconcileTransportStatus(status, options = {}) {
+  const previousPhase = runtime.state.transport.phase;
+  const previousRole = runtime.state.room.role;
 
-    const hostId = `bt_${randomId("room")}`;
+  dispatch(
+    {
+      type: "TRANSPORT_STATUS_CHANGED",
+      status
+    },
+    options
+  );
 
-    try {
-      state.peer = new Peer(hostId, {
-        key: PEERJS_KEY || undefined,
-        ...PEER_OPTIONS
-      });
-    } catch (e) {
-      resetSessionState();
-      reject(new Error("无法初始化 P2P 连接"));
-      return;
-    }
-
-    state.peer.on("connection", (conn) => {
-      setupDataChannel(conn);
-      state.remotePeer = {
-        peerId: conn.peer,
-        nickname: "远端成员",
-        connectionState: "connected"
-      };
-      state.connectionPhase = "connected";
+  const nextPhase = runtime.state.transport.phase;
+  if (nextPhase === CONNECTION_PHASES.CONNECTED && previousPhase !== CONNECTION_PHASES.CONNECTED) {
+    if (runtime.state.room.role === "host") {
       sendToast("对方已加入！");
-      sendStateSnapshot();
-      broadcastState();
-    });
-
-    state.peer.on("error", (err) => {
-      if (err.type === "peer-unavailable") {
-        setLastError("房间不存在或已过期");
-        state.connectionPhase = "failed";
-      } else if (err.type !== "browser-bad-https") {
-        setLastError(err.message || "连接错误");
-      }
-      broadcastState();
-    });
-
-    // PeerJS 需要一点时间初始化
-    setTimeout(() => {
-      if (state.connectionPhase === "connecting") {
-        resolve({ roomId: hostId });
-      }
-    }, 1500);
-
-    state.peer.on("open", () => {
-      // nothing extra needed
-    });
-  });
-}
-
-// ─── Guest: 加入房间 ─────────────────────────────────
-function joinRoom(roomId) {
-  return new Promise(async (resolve, reject) => {
-    await loadPeerJs();
-    resetSessionState();
-    state.connectionPhase = "connecting";
-    broadcastState();
-
-    try {
-      state.peer = new Peer(undefined, {
-        key: PEERJS_KEY || undefined,
-        ...PEER_OPTIONS
-      });
-    } catch (e) {
-      resetSessionState();
-      reject(new Error("无法初始化 P2P 连接"));
-      return;
+      sendStateSnapshotToPeer().catch((error) => logDiagnostic("error", error.message, { step: "send_snapshot" }, error.message));
+    } else {
+      sendToast("已连接到房主！");
     }
-
-    state.peer.on("open", () => {
-      const conn = state.peer.connect(roomId, { reliable: true });
-      setupDataChannel(conn);
-
-      conn.on("open", () => {
-        state.remotePeer = {
-          peerId: roomId,
-          nickname: "房主",
-          connectionState: "connected"
-        };
-        state.connectionPhase = "connected";
-        sendToast("已连接到房主！");
-        sendStateSnapshot();
-        broadcastState();
-        resolve({ ok: true });
-      });
-
-      conn.on("error", (err) => {
-        setLastError(err.message || "连接失败");
-        state.connectionPhase = "failed";
-        broadcastState();
-        reject(err);
-      });
-    });
-
-    state.peer.on("error", (err) => {
-      if (err.type === "peer-unavailable") {
-        setLastError("房间不存在或已过期");
-        state.connectionPhase = "failed";
-        reject(new Error("房间不存在或已过期"));
-      } else if (err.type !== "browser-bad-https") {
-        setLastError(err.message || "连接错误");
-        state.connectionPhase = "failed";
-        reject(err);
-      }
-      broadcastState();
-    });
-
-    setTimeout(() => {
-      if (state.connectionPhase === "connecting") {
-        reject(new Error("连接超时"));
-      }
-    }, 15000);
-  });
-}
-
-function setupDataChannel(conn) {
-  state.dataChannel = conn;
-
-  conn.on("data", (data) => {
-    try {
-      const envelope = JSON.parse(data);
-      handlePeerData(envelope);
-    } catch {}
-  });
-
-  conn.on("close", () => {
-    state.connectionPhase = "idle";
-    state.remotePeer = null;
-    state.dataChannel = null;
-    sendToast("连接已断开");
-    broadcastState();
-  });
-
-  conn.on("error", () => {
-    state.connectionPhase = "failed";
-    broadcastState();
-  });
-}
-
-// ─── 内容脚本消息处理 ─────────────────────────────────
-function bindContentTab(tabId, payload) {
-  state.contentTabId = tabId;
-  if (payload?.nickname && payload.nickname !== state.identity.nickname) {
-    state.identity = { ...state.identity, nickname: payload.nickname };
-    saveIdentity(state.identity).catch(() => {});
-  }
-  if (payload?.videoIdentity && !state.sessionState.videoIdentity) {
-    state.sessionState.videoIdentity = payload.videoIdentity;
-  }
-  broadcastState();
-}
-
-function updateLocalPlayback(playbackState, videoIdentity) {
-  if (!playbackState) return;
-  state.sessionState.playbackState = canonicalizePlaybackState({
-    ...playbackState,
-    updatedBy: state.identity.peerId
-  });
-  if (videoIdentity && !state.sessionState.videoIdentity) {
-    state.sessionState.videoIdentity = videoIdentity;
+  } else if (nextPhase === CONNECTION_PHASES.DISCONNECTED && previousPhase === CONNECTION_PHASES.CONNECTED) {
+    sendToast("连接已断开，需要重新建房或加入");
+  } else if (
+    nextPhase === CONNECTION_PHASES.FAILED &&
+    previousPhase !== CONNECTION_PHASES.FAILED &&
+    runtime.state.transport.lastError
+  ) {
+    sendToast(runtime.state.transport.lastError);
+  } else if (
+    nextPhase === CONNECTION_PHASES.HOSTING &&
+    previousPhase === CONNECTION_PHASES.CONNECTED &&
+    previousRole === "guest"
+  ) {
+    sendToast("已回到建房状态");
   }
 }
 
-async function relayEnvelope(envelope) {
-  const ok = sendViaDataChannel(envelope);
-  if (!ok) throw new Error("当前未连接对方");
-}
-
-function handleContentMessage(message, sender) {
-  const tabId = sender.tab?.id;
-  if (!tabId) return null;
-  switch (message.type) {
-    case MESSAGE_TYPES.CONTENT_READY:
-      bindContentTab(tabId, message.payload);
-      if (
-        state.sessionState.videoIdentity &&
-        message.payload?.videoIdentity &&
-        !shallowEqualVideoIdentity(state.sessionState.videoIdentity, message.payload.videoIdentity)
-      ) {
-        sendToast(`正在同步到 ${state.sessionState.videoIdentity.title || "房间视频"}`);
-        applyRemoteEnvelopeToContent(
-          buildEnvelope(ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE, {
-            videoIdentity: state.sessionState.videoIdentity
-          })
-        );
-      }
-      return { ok: true };
-    case MESSAGE_TYPES.CONTENT_PLAYBACK_STATE:
-      updateLocalPlayback(message.payload.playbackState, message.payload.videoIdentity);
-      broadcastState();
-      return { ok: true };
-    case MESSAGE_TYPES.CONTENT_CONTROL_EVENT: {
-      const envelope = buildEnvelope(message.payload.kind, {
-        playbackState: canonicalizePlaybackState(message.payload.playbackState),
-        videoIdentity: message.payload.videoIdentity || state.sessionState.videoIdentity
-      });
-      if (message.payload.kind === ROOM_EVENT_TYPES.SYNC_VIDEO_CHANGE && envelope.data.videoIdentity) {
-        state.sessionState.videoIdentity = envelope.data.videoIdentity;
-      } else {
-        maybeApplyPlaybackEvent(envelope);
-      }
-      relayEnvelope(envelope).catch((e) => setLastError(e.message));
-      broadcastState();
-      return { ok: true };
-    }
-    case MESSAGE_TYPES.CONTENT_SEND_CHAT: {
-      const text = String(message.payload.text || "").trim();
-      if (!text) return { ok: false };
-      const envelope = buildEnvelope(ROOM_EVENT_TYPES.CHAT_MESSAGE, { text });
-      state.sessionState.chatMessages = trimChatHistory([
-        ...state.sessionState.chatMessages,
-        {
-          id: envelope.id,
-          senderId: envelope.senderId,
-          senderNickname: envelope.senderNickname,
-          text,
-          timestamp: envelope.timestamp
-        }
-      ]);
-      relayEnvelope(envelope).catch((e) => setLastError(e.message));
-      broadcastState();
-      return { ok: true };
-    }
-    default:
-      return null;
+async function syncOffscreenStatus() {
+  try {
+    const status = await callOffscreen(OFFSCREEN_COMMAND_TYPES.GET_STATUS);
+    reconcileTransportStatus(status);
+  } catch (error) {
+    logDiagnostic("error", error.message, { step: "sync_offscreen" }, error.message);
   }
 }
 
-// ─── Popup 消息处理 ──────────────────────────────────
+async function handleCreateRoom() {
+  const roomCode = generateRoomCode(6);
+  const result = await callOffscreen(OFFSCREEN_COMMAND_TYPES.CREATE_ROOM, { roomCode });
+  reconcileTransportStatus(result.status);
+  return { roomId: roomCode };
+}
+
+async function handleJoinRoom(roomId) {
+  const result = await callOffscreen(OFFSCREEN_COMMAND_TYPES.JOIN_ROOM, { roomCode: roomId });
+  reconcileTransportStatus(result.status);
+  return { ok: true };
+}
+
+async function handleResetSession() {
+  await callOffscreen(OFFSCREEN_COMMAND_TYPES.RESET);
+  dispatch({ type: "RESET_SESSION" }, { persist: false });
+  await clearSessionSnapshot().catch(() => {});
+  await saveSessionSnapshot(serializePersistedSession(runtime.state)).catch(() => {});
+  return serializeAppState(runtime.state);
+}
+
 async function handlePopupMessage(message) {
   switch (message.type) {
     case MESSAGE_TYPES.GET_APP_STATE:
-      return serializeAppState();
+      return serializeAppState(runtime.state);
     case MESSAGE_TYPES.CREATE_ROOM:
-      return createRoom();
+      return handleCreateRoom();
     case MESSAGE_TYPES.JOIN_ROOM:
-      return joinRoom(message.payload.roomId);
+      return handleJoinRoom(message.payload.roomId);
     case MESSAGE_TYPES.RESET_SESSION:
-      await resetSession();
-      return serializeAppState();
+      return handleResetSession();
     case MESSAGE_TYPES.OPEN_BILIBILI:
       await chrome.tabs.create({ url: "https://www.bilibili.com/" });
       return { ok: true };
@@ -465,55 +281,155 @@ async function handlePopupMessage(message) {
   }
 }
 
-async function resetSession() {
-  try { state.peer?.destroy(); } catch {}
-  state.peer = null;
-  state.dataChannel = null;
-  resetSessionState();
-  broadcastState();
+async function handleContentReady(tabId, payload) {
+  rememberContentTab(tabId);
+  if (payload?.nickname && payload.nickname !== runtime.state.identity?.nickname) {
+    const nextIdentity = await saveIdentity({
+      ...runtime.state.identity,
+      nickname: payload.nickname
+    });
+    dispatch({ type: "SET_IDENTITY", identity: nextIdentity });
+  }
+  if (runtime.state.transport.phase === CONNECTION_PHASES.CONNECTED) {
+    applyStateSnapshotToContent();
+  }
+  return { ok: true };
 }
 
-// ─── 端口和消息路由 ──────────────────────────────────
+async function handleContentMessage(message, sender) {
+  const tabId = sender.tab?.id;
+  if (!tabId) {
+    return null;
+  }
+  rememberContentTab(tabId);
+
+  switch (message.type) {
+    case MESSAGE_TYPES.CONTENT_READY:
+      return handleContentReady(tabId, message.payload);
+    case MESSAGE_TYPES.CONTENT_PLAYBACK_STATE:
+      dispatch({
+        type: "LOCAL_PLAYBACK_UPDATED",
+        playbackState: message.payload.playbackState,
+        videoIdentity: message.payload.videoIdentity,
+        updatedBy: runtime.state.identity?.peerId || ""
+      });
+      return { ok: true };
+    case MESSAGE_TYPES.CONTENT_CONTROL_EVENT: {
+      const envelope = buildEnvelope(runtime.state.identity, message.payload.kind, {
+        playbackState: message.payload.playbackState,
+        videoIdentity: message.payload.videoIdentity || runtime.state.media.videoIdentity
+      });
+      dispatch({ type: "LOCAL_ENVELOPE_CREATED", envelope });
+      if (runtime.state.transport.phase === CONNECTION_PHASES.CONNECTED) {
+        await sendEnvelopeToPeer(envelope);
+      } else {
+        logPeerUnavailable(message.payload.kind);
+      }
+      return { ok: true };
+    }
+    case MESSAGE_TYPES.CONTENT_SEND_CHAT: {
+      const text = String(message.payload.text || "").trim();
+      if (!text) {
+        return { ok: false };
+      }
+      const envelope = buildEnvelope(runtime.state.identity, ROOM_EVENT_TYPES.CHAT_MESSAGE, { text });
+      dispatch({ type: "LOCAL_ENVELOPE_CREATED", envelope });
+      if (runtime.state.transport.phase === CONNECTION_PHASES.CONNECTED) {
+        await sendEnvelopeToPeer(envelope);
+      } else {
+        logPeerUnavailable(ROOM_EVENT_TYPES.CHAT_MESSAGE);
+      }
+      return { ok: true };
+    }
+    default:
+      return null;
+  }
+}
+
+function handleOffscreenEvent(message) {
+  if (message.type === OFFSCREEN_EVENT_TYPES.STATUS_CHANGED) {
+    reconcileTransportStatus(message.payload.status);
+    return;
+  }
+
+  if (message.type === OFFSCREEN_EVENT_TYPES.PEER_MESSAGE) {
+    dispatch({ type: "REMOTE_ENVELOPE_RECEIVED", envelope: message.payload.envelope });
+    applyRemoteEnvelopeToContent(message.payload.envelope);
+    return;
+  }
+
+  if (message.type === OFFSCREEN_EVENT_TYPES.ERROR) {
+    dispatch({
+      type: "TRANSPORT_ERROR",
+      message: message.payload.error,
+      meta: message.payload.meta
+    });
+    return;
+  }
+
+  if (message.type === OFFSCREEN_EVENT_TYPES.DIAGNOSTIC) {
+    logDiagnostic(message.payload.level, message.payload.message, message.payload.meta, message.payload.lastError);
+  }
+}
+
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "popup") return;
-  state.popupPorts.add(port);
-  port.postMessage({ type: MESSAGE_TYPES.APP_STATE_UPDATED, payload: serializeAppState() });
-  port.onDisconnect.addListener(() => state.popupPorts.delete(port));
+  if (port.name !== "popup") {
+    return;
+  }
+  runtime.popupPorts.add(port);
+  port.postMessage({
+    type: MESSAGE_TYPES.APP_STATE_UPDATED,
+    payload: serializeAppState(runtime.state)
+  });
+  port.onDisconnect.addListener(() => runtime.popupPorts.delete(port));
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
       if (message?.source === "offscreen") {
+        handleOffscreenEvent(message);
         sendResponse({ ok: true });
         return;
       }
-      if (message.type.startsWith("CONTENT_")) {
-        sendResponse({ ok: true, data: handleContentMessage(message, sender) });
+
+      if (message.type?.startsWith("CONTENT_")) {
+        sendResponse({ ok: true, data: await handleContentMessage(message, sender) });
         return;
       }
+
       sendResponse({ ok: true, data: await handlePopupMessage(message) });
     } catch (error) {
-      setLastError(error?.message || String(error));
-      sendResponse({ ok: false, error: error?.message || String(error) });
+      const text = error?.message || String(error);
+      logDiagnostic("error", text, { messageType: message?.type }, text);
+      sendResponse({ ok: false, error: text });
     }
   })();
+
   return true;
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (state.contentTabId === tabId) {
-    state.contentTabId = null;
-    broadcastState();
+  if (runtime.contentTabId === tabId) {
+    runtime.contentTabId = null;
   }
 });
 
-// ─── 初始化 ──────────────────────────────────────────
 async function bootstrap() {
-  state.identity = await loadIdentity();
+  const identity = await loadIdentity();
+  const restoredState = hydrateSessionState(identity, await loadSessionSnapshot());
+  runtime.state = restoredState;
+  await saveSessionSnapshot(serializePersistedSession(runtime.state)).catch(() => {});
   broadcastState();
+  await syncOffscreenStatus();
 }
 
-chrome.runtime.onInstalled.addListener(() => bootstrap());
-chrome.runtime.onStartup.addListener(() => bootstrap());
-bootstrap();
+chrome.runtime.onInstalled.addListener(() => {
+  bootstrap().catch((error) => logDiagnostic("error", error.message, { step: "onInstalled" }, error.message));
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  bootstrap().catch((error) => logDiagnostic("error", error.message, { step: "onStartup" }, error.message));
+});
+
+bootstrap().catch((error) => logDiagnostic("error", error.message, { step: "bootstrap" }, error.message));

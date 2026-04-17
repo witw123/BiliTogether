@@ -2,6 +2,10 @@
   const { STORAGE_KEYS } = globalScope.BiliTogetherConstants;
   const { createFallbackNickname, randomId } = globalScope.BiliTogetherUtils;
 
+  function getSessionArea() {
+    return chrome.storage.session || chrome.storage.local;
+  }
+
   async function loadIdentity() {
     const result = await chrome.storage.local.get(STORAGE_KEYS.IDENTITY);
     let identity = result[STORAGE_KEYS.IDENTITY];
@@ -24,19 +28,24 @@
     return nextIdentity;
   }
 
-  async function saveLastInvite(inviteText) {
-    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_INVITE]: inviteText || "" });
+  async function loadSessionSnapshot() {
+    const result = await getSessionArea().get(STORAGE_KEYS.SESSION);
+    return result[STORAGE_KEYS.SESSION] || null;
   }
 
-  async function loadLastInvite() {
-    const result = await chrome.storage.local.get(STORAGE_KEYS.LAST_INVITE);
-    return result[STORAGE_KEYS.LAST_INVITE] || "";
+  async function saveSessionSnapshot(snapshot) {
+    await getSessionArea().set({ [STORAGE_KEYS.SESSION]: snapshot || null });
+  }
+
+  async function clearSessionSnapshot() {
+    await getSessionArea().remove(STORAGE_KEYS.SESSION);
   }
 
   globalScope.BiliTogetherStorage = {
     loadIdentity,
-    loadLastInvite,
     saveIdentity,
-    saveLastInvite
+    loadSessionSnapshot,
+    saveSessionSnapshot,
+    clearSessionSnapshot
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);

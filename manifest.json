@@ -3,7 +3,7 @@
   "name": "BiliTogether",
   "description": "双人一起看 B 站插件，支持手动邀请、聊天和抢控制。",
   "version": "0.2.0",
-  "permissions": ["storage", "tabs", "scripting", "offscreen"],
+  "permissions": ["storage", "tabs", "offscreen"],
   "host_permissions": [
     "https://www.bilibili.com/*",
     "https://bangumi.bilibili.com/*",
